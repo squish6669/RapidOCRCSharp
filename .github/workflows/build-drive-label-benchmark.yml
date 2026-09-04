@@ -1,0 +1,56 @@
+name: Build Drive Label OCR Benchmark
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "DriveLabelBenchmark/**"
+      - ".github/workflows/build-drive-label-benchmark.yml"
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Restore
+        run: dotnet restore DriveLabelBenchmark/DriveLabelBenchmark.csproj
+
+      - name: Publish Windows x64 benchmark
+        run: >
+          dotnet publish DriveLabelBenchmark/DriveLabelBenchmark.csproj
+          -c Release
+          -r win-x64
+          --self-contained true
+          -o "${{ github.workspace }}\publish"
+
+      - name: Copy OCR models
+        shell: pwsh
+        run: |
+          $source = "${{ github.workspace }}\RapidOCRConsole\models"
+          $dest = "${{ github.workspace }}\publish\models"
+
+          if (!(Test-Path $source)) {
+              throw "RapidOCR model directory not found: $source"
+          }
+
+          New-Item -ItemType Directory -Force -Path $dest | Out-Null
+          Copy-Item "$source\*" $dest -Recurse -Force
+
+          Write-Host "Benchmark package contents:"
+          Get-ChildItem "${{ github.workspace }}\publish" -Recurse |
+              Select-Object FullName
+
+      - name: Upload Drive Label Benchmark
+        uses: actions/upload-artifact@v4
+        with:
+          name: DEP-Drive-Label-OCR-Benchmark-Windows-x64
+          path: publish/**
+          if-no-files-found: error
