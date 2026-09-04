@@ -1,0 +1,47 @@
+name: Build Camera Lab RapidOCR Bridge
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "CameraLabRapidOcr/**"
+      - ".github/workflows/build-camera-lab-rapidocr.yml"
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Restore
+        run: dotnet restore CameraLabRapidOcr/CameraLabRapidOcr.csproj
+
+      - name: Publish Windows x64 bridge
+        run: >
+          dotnet publish CameraLabRapidOcr/CameraLabRapidOcr.csproj
+          -c Release
+          -r win-x64
+          --self-contained true
+          -o "${{ github.workspace }}\publish"
+
+      - name: Copy OCR models
+        shell: pwsh
+        run: |
+          $source = "${{ github.workspace }}\RapidOCRConsole\models"
+          $dest = "${{ github.workspace }}\publish\models"
+          if (!(Test-Path $source)) { throw "RapidOCR model directory not found: $source" }
+          New-Item -ItemType Directory -Force -Path $dest | Out-Null
+          Copy-Item "$source\*" $dest -Recurse -Force
+
+      - name: Upload Camera Lab RapidOCR Bridge
+        uses: actions/upload-artifact@v4
+        with:
+          name: DEP-Camera-Lab-RapidOCR-Windows-x64
+          path: publish/**
+          if-no-files-found: error
