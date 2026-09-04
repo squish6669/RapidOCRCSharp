@@ -185,7 +185,16 @@ foreach (string image in images)
 
     try
     {
-        var result = ocrEngine.Detect(image, 50);
+        var result = ocrEngine.Detect(
+    image,
+    padding: 50,
+    maxSideLen: 1024,
+    boxScoreThresh: 0.5f,
+    boxThresh: 0.3f,
+    unClipRatio: 1.6f,
+    doAngle: false,
+    mostAngle: false
+);
 
         imageWatch.Stop();
 
