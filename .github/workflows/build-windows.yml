@@ -1,0 +1,43 @@
+name: Build Portable Windows OCR
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore
+        run: dotnet restore RapidOCRConsole/RapidOCRConsole.csproj
+
+      - name: Publish portable Windows package
+        run: >
+          dotnet publish RapidOCRConsole/RapidOCRConsole.csproj
+          -c Release
+          -r win-x64
+          --self-contained true
+          -p:PublishSingleFile=false
+          -p:IncludeNativeLibrariesForSelfExtract=false
+          -o portable-ocr
+
+      - name: Show output
+        shell: pwsh
+        run: |
+          Write-Host "Published files:"
+          Get-ChildItem portable-ocr -Recurse | Select-Object FullName,Length
+
+      - name: Upload portable OCR package
+        uses: actions/upload-artifact@v4
+        with:
+          name: RapidOCR-Windows-Portable
+          path: portable-ocr
+          if-no-files-found: error
