@@ -92,6 +92,9 @@ foreach (int maxSideLen in maxSideLens)
     string rawDir = Path.Combine(settingDir, "RawText");
     Directory.CreateDirectory(rawDir);
 
+    var settingRows = new List<SweepRow>();
+    var settingDetections = new List<DetectionRow>();
+
     int n = 0;
     foreach (string image in images)
     {
@@ -113,8 +116,7 @@ foreach (int maxSideLen in maxSideLens)
             string raw = result?.StrRes?.Trim() ?? "";
             int blocks = result?.TextBlocks?.Count ?? 0;
             double rapidMs = result?.DetectTime ?? 0;
-
-            rows.Add(new SweepRow
+            var row = new SweepRow
             {
                 MaxSideLen = maxSideLen,
                 FileName = Path.GetFileName(image),
@@ -122,7 +124,37 @@ foreach (int maxSideLen in maxSideLens)
                 RapidDetectMilliseconds = rapidMs,
                 DetectionCount = blocks,
                 RawText = raw
-            });
+            };
+            rows.Add(row);
+            settingRows.Add(row);
+
+            if (result?.TextBlocks != null)
+            {
+                int blockNumber = 0;
+                foreach (var block in result.TextBlocks)
+                {
+                    blockNumber++;
+                    double avgChar = block.CharScores != null && block.CharScores.Count > 0
+                        ? block.CharScores.Average()
+                        : 0;
+                    string coordinates = block.BoxPoints == null
+                        ? ""
+                        : string.Join(" | ", block.BoxPoints.Select(p => $"{p.X},{p.Y}"));
+                    settingDetections.Add(new DetectionRow
+                    {
+                        FileName = Path.GetFileName(image),
+                        Block = blockNumber,
+                        Text = block.Text ?? "",
+                        BoxConfidence = block.BoxScore,
+                        AverageCharacterConfidence = avgChar,
+                        Coordinates = coordinates,
+                        RecognitionMilliseconds = block.CrnnTime,
+                        BlockMilliseconds = block.BlockTime,
+                        ImageElapsedMilliseconds = sw.Elapsed.TotalMilliseconds,
+                        RapidDetectMilliseconds = rapidMs
+                    });
+                }
+            }
 
             await File.WriteAllTextAsync(
                 Path.Combine(rawDir, Path.GetFileNameWithoutExtension(image) + ".txt"),
@@ -134,16 +166,21 @@ foreach (int maxSideLen in maxSideLens)
         catch (Exception ex)
         {
             sw.Stop();
-            rows.Add(new SweepRow
+            var row = new SweepRow
             {
                 MaxSideLen = maxSideLen,
                 FileName = Path.GetFileName(image),
                 ElapsedMilliseconds = sw.Elapsed.TotalMilliseconds,
                 Error = ex.ToString()
-            });
+            };
+            rows.Add(row);
+            settingRows.Add(row);
             Console.WriteLine($"[{n}/{images.Count}] {Path.GetFileName(image)} | ERROR: {ex.Message}");
         }
     }
+
+    await WriteImageCsv(Path.Combine(settingDir, "RapidOCR_Images.csv"), settingRows);
+    await WriteDetectionCsv(Path.Combine(settingDir, "RapidOCR_Detections.csv"), settingDetections);
     Console.WriteLine();
 }
 
@@ -182,7 +219,25 @@ await File.WriteAllTextAsync(summaryCsv, summary.ToString(), Encoding.UTF8);
 Console.WriteLine();
 Console.WriteLine("Sweep complete.");
 Console.WriteLine(rootOutput);
-Console.WriteLine("Created SweepResults.csv, SweepSummary.csv, and RawText folders for each setting.");
+Console.WriteLine("Created per-resolution RapidOCR_Images.csv and RapidOCR_Detections.csv plus sweep summaries.");
+
+static async Task WriteImageCsv(string path, List<SweepRow> settingRows)
+{
+    var sb = new StringBuilder();
+    sb.AppendLine("FileName,DetectionCount,ElapsedMilliseconds,RapidDetectMilliseconds,RawText,Error");
+    foreach (var r in settingRows)
+        sb.AppendLine(string.Join(",", Csv(r.FileName), r.DetectionCount, F(r.ElapsedMilliseconds), F(r.RapidDetectMilliseconds), Csv(r.RawText), Csv(r.Error)));
+    await File.WriteAllTextAsync(path, sb.ToString(), Encoding.UTF8);
+}
+
+static async Task WriteDetectionCsv(string path, List<DetectionRow> detections)
+{
+    var sb = new StringBuilder();
+    sb.AppendLine("FileName,Block,Text,BoxConfidence,AverageCharacterConfidence,Coordinates,RecognitionMilliseconds,BlockMilliseconds,ImageElapsedMilliseconds,RapidDetectMilliseconds");
+    foreach (var d in detections)
+        sb.AppendLine(string.Join(",", Csv(d.FileName), d.Block, Csv(d.Text), F(d.BoxConfidence), F(d.AverageCharacterConfidence), Csv(d.Coordinates), F(d.RecognitionMilliseconds), F(d.BlockMilliseconds), F(d.ImageElapsedMilliseconds), F(d.RapidDetectMilliseconds)));
+    await File.WriteAllTextAsync(path, sb.ToString(), Encoding.UTF8);
+}
 
 static double Percentile(List<double> sorted, double p)
 {
@@ -213,4 +268,18 @@ class SweepRow
     public double RapidDetectMilliseconds { get; set; }
     public string RawText { get; set; } = "";
     public string Error { get; set; } = "";
+}
+
+class DetectionRow
+{
+    public string FileName { get; set; } = "";
+    public int Block { get; set; }
+    public string Text { get; set; } = "";
+    public double BoxConfidence { get; set; }
+    public double AverageCharacterConfidence { get; set; }
+    public string Coordinates { get; set; } = "";
+    public double RecognitionMilliseconds { get; set; }
+    public double BlockMilliseconds { get; set; }
+    public double ImageElapsedMilliseconds { get; set; }
+    public double RapidDetectMilliseconds { get; set; }
 }
