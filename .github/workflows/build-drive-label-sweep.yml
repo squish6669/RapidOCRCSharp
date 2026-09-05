@@ -1,0 +1,64 @@
+name: Build Drive Label OCR Resolution Sweep
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "DriveLabelSweep/**"
+      - ".github/workflows/build-drive-label-sweep.yml"
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Restore
+        run: dotnet restore DriveLabelSweep/DriveLabelSweep.csproj
+
+      - name: Publish Windows x64 sweep utility
+        run: >
+          dotnet publish DriveLabelSweep/DriveLabelSweep.csproj
+          -c Release
+          -r win-x64
+          --self-contained true
+          -o "${{ github.workspace }}\publish"
+
+      - name: Copy OCR models
+        shell: pwsh
+        run: |
+          $source = "${{ github.workspace }}\RapidOCRConsole\models"
+          $dest = "${{ github.workspace }}\publish\models"
+          if (!(Test-Path $source)) { throw "RapidOCR model directory not found: $source" }
+          New-Item -ItemType Directory -Force -Path $dest | Out-Null
+          Copy-Item "$source\*" $dest -Recurse -Force
+
+      - name: Add helper launcher
+        shell: pwsh
+        run: |
+          @'
+          @echo off
+          setlocal
+          if "%~1"=="" (
+            echo Drag a folder of drive-label photos onto this BAT file,
+            echo or run: RUN-OCR-SWEEP.cmd "C:\path\to\photos"
+            pause
+            exit /b 1
+          )
+          "%~dp0DriveLabelSweep.exe" "%~1" 1024,1600,2048
+          pause
+          '@ | Set-Content -Path "${{ github.workspace }}\publish\RUN-OCR-SWEEP.cmd" -Encoding ASCII
+
+      - name: Upload OCR Resolution Sweep
+        uses: actions/upload-artifact@v4
+        with:
+          name: DEP-Drive-Label-OCR-Resolution-Sweep-Windows-x64
+          path: publish/**
+          if-no-files-found: error
